@@ -1,8 +1,8 @@
 {
   "name": "dsh-git",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": false,
-  "description": "Read-only git tools for DeepSeek Harness sessions: status, diff, log, show, branch.",
+  "description": "Git tools for DeepSeek Harness sessions: status, diff, log, show, branch, stage, commit, blame.",
   "type": "module",
   "main": "lib/index.js",
   "exports": {

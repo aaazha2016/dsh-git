@@ -13,6 +13,8 @@ async function makeRepo() {
   const dir = await mkdtemp(path.join(tmpdir(), 'dsh-git-'))
   const git = (...args) => runGit(dir, args, signal())
   await git('init', '-q', '-b', 'main')
+  await git('config', 'user.email', 't@example.com')
+  await git('config', 'user.name', 'T')
   await writeFile(path.join(dir, 'a.txt'), 'one\n')
   await git('add', 'a.txt')
   await git('-c', 'user.email=t@example.com', '-c', 'user.name=T', 'commit', '-q', '-m', 'init')
@@ -29,12 +31,12 @@ function fakeContext(cwd) {
   return registered
 }
 
-test('plugin registers five tools with valid schemas', async () => {
+test('plugin registers eight tools with valid schemas', async () => {
   const { dir } = await makeRepo()
   const tools = fakeContext(dir)
   assert.deepEqual(
     tools.map((tool) => tool.name).sort(),
-    ['git_branch', 'git_diff', 'git_log', 'git_show', 'git_status'],
+    ['git_blame', 'git_branch', 'git_commit', 'git_diff', 'git_log', 'git_show', 'git_stage', 'git_status'],
   )
   for (const tool of tools) {
     assert.equal(typeof tool.description, 'string')
@@ -122,4 +124,69 @@ test('porcelain parser handles renames and counts', () => {
   assert.equal(entries.length, 3)
   assert.equal(entries[0].originalPath, 'old.txt')
   assert.deepEqual(summarizeEntries(entries), { staged: 1, unstaged: 1, untracked: 1 })
+})
+
+test('git_stage and git_commit write one commit', async () => {
+  const { dir } = await makeRepo()
+  const [, , , , , stageTool, commitTool] = fakeContext(dir)
+  const exec = { signal: signal(), agent: undefined }
+
+  await appendFile(path.join(dir, 'a.txt'), 'two\n')
+  await writeFile(path.join(dir, 'b.txt'), 'new\n')
+
+  const stagedExplicit = await stageTool.execute({ cwd: dir, paths: ['a.txt'] }, exec)
+  assert.deepEqual(stagedExplicit.files.map((f) => f.path), ['a.txt'])
+  assert.equal(stagedExplicit.files[0].status, 'M')
+
+  await stageTool.execute({ cwd: dir, all: true }, exec)
+  const stagedAllRaw = await runGit(dir, ['diff', '--cached', '--name-status'], signal())
+  const stagedRows = stagedAllRaw.stdout.trim().split(String.fromCharCode(10)).map((line) => line.split(String.fromCharCode(9)))
+  assert.deepEqual(stagedRows.map((row) => row[1]).sort(), ['a.txt', 'b.txt'])
+  assert.ok(stagedRows.some((row) => row[0] === 'A' && row[1] === 'b.txt'))
+
+  const committed = await commitTool.execute({ cwd: dir, message: 'second' }, exec)
+  assert.match(committed.hash, /^[0-9a-f]{7,}$/)
+  assert.match(committed.text, /second/)
+
+  const status = await runGit(dir, ['status', '--porcelain'], signal())
+  assert.equal(status.stdout.trim(), '')
+  const logResult = await runGit(dir, ['log', '--oneline'], signal())
+  assert.equal(logResult.stdout.trim().split('\n').length, 2)
+})
+
+test('git_commit refuses an empty index and a merge in progress', async () => {
+  const { dir } = await makeRepo()
+  const [, , , , , , commitTool] = fakeContext(dir)
+  const exec = { signal: signal(), agent: undefined }
+
+  await assert.rejects(() => commitTool.execute({ cwd: dir, message: 'empty' }, exec), /Nothing is staged/)
+
+  await appendFile(path.join(dir, 'a.txt'), 'two\n')
+  await runGit(dir, ['add', 'a.txt'], signal())
+  const head = await runGit(dir, ['rev-parse', 'HEAD'], signal())
+  await writeFile(path.join(dir, '.git', 'MERGE_HEAD'), head.stdout)
+  await assert.rejects(
+    () => commitTool.execute({ cwd: dir, message: 'during merge' }, exec),
+    /merge is in progress/,
+  )
+})
+
+test('git_blame names the author of a line', async () => {
+  const { dir } = await makeRepo()
+  fakeContext(dir)
+  const tools = fakeContext(dir)
+  const blameTool = tools[tools.length - 1]
+  const result = await blameTool.execute({ cwd: dir, path: 'a.txt' }, { signal: signal(), agent: undefined })
+  assert.match(result.text, /T\s+20/)
+  assert.match(result.text, /one/)
+})
+
+test('git_stage rejects an empty path list', async () => {
+  const { dir } = await makeRepo()
+  const tools = fakeContext(dir)
+  const stageTool = tools[5]
+  await assert.rejects(
+    () => stageTool.execute({ cwd: dir }, { signal: signal(), agent: undefined }),
+    /At least one path/,
+  )
 })

@@ -1,9 +1,10 @@
 # dsh-git
 
-Read-only git tools for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) Sessions.
+Git tools for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) Sessions: inspect a repository, stage, commit, blame.
 
-A DSH bundle that registers five git tools on `ctx.tools`, so the agent can inspect a
-repository without going through a shell. It never writes: no add, commit, checkout, reset, push.
+A DSH bundle that registers eight git tools on `ctx.tools`, so the agent can work with a
+repository without going through a shell. Writing is limited to staging and committing: no
+checkout, reset, rebase, amend, tag or push.
 
 ## Tools
 
@@ -14,6 +15,9 @@ repository without going through a shell. It never writes: no add, commit, check
 | `git_log` | Recent commits as `{hash, author, date, subject}`, newest first, optional `path` |
 | `git_show` | One commit or ref: metadata, stat and patch (truncated when huge) |
 | `git_branch` | Local branches, current one marked, upstream named |
+| `git_stage` | Stage explicit paths, or `all=true` for the whole worktree |
+| `git_commit` | Commit the index with one message; refuses an empty index or a merge/rebase in progress |
+| `git_blame` | Which commit last touched each line, with author and date; `startLine`/`endLine` to narrow |
 
 Every tool takes an optional `cwd`. With no argument it uses the Session working
 directory, the same one the built-in `bash` and file tools use, so a tool call and a shell
@@ -66,8 +70,9 @@ git_status({ cwd: "/data/zha/other-repo" })
 - **Argument vectors, never a shell.** Every command is an `execFile('git', [...])` call with a
   15 s timeout, a 16 MiB buffer, `GIT_TERMINAL_PROMPT=0`, and the caller's abort signal. No
   string interpolation reaches a shell.
-- **Read-only by construction.** The argument lists are built here; no tool forwards
-  free-form git subcommands or flags from the model.
+- **Bounded writing.** Only `git_stage` and `git_commit` write. The argument lists are built
+  here; no tool forwards free-form git subcommands or flags from the model, and there is no
+  amend, hook bypass, branch checkout or push.
 - **Failures are explicit.** A non-zero exit is reported as data; a directory that is not a
   repository throws `Not a git repository: ...` so the call is marked failed.
 
@@ -82,7 +87,8 @@ porcelain parser. No harness install is needed to run them.
 
 ## Limits
 
-- Read-only. Writing (stage, commit, branch switch) is deliberately out of scope for 0.1.0.
+- No push, checkout, reset, rebase, amend, tag or stash: those stay with a person.
+- `git_commit` commits only what is already staged, so a reviewed diff always precedes it.
 - Local branches only; no remote refs beyond each branch's configured upstream.
 - Patches are capped at 40,000 characters per result and say when they were cut.
 
