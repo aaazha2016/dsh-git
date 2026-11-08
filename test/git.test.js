@@ -6,6 +6,7 @@ import path from 'node:path'
 
 import { apply } from '../lib/index.js'
 import { runGit, parsePorcelain, summarizeEntries } from '../lib/git.js'
+import { isInside, normalizeRoots } from '../lib/policy.js'
 
 const signal = () => new AbortController().signal
 
@@ -21,13 +22,13 @@ async function makeRepo() {
   return { dir, git }
 }
 
-function fakeContext(cwd) {
+function fakeContext(cwd, config = {}) {
   const registered = []
   const ctx = {
     tools: { register: (definition) => registered.push(definition) },
     workingDirectory: { ensure: async () => cwd },
   }
-  apply(ctx)
+  apply(ctx, config)
   return registered
 }
 
@@ -189,4 +190,41 @@ test('git_stage rejects an empty path list', async () => {
     () => stageTool.execute({ cwd: dir }, { signal: signal(), agent: undefined }),
     /At least one path/,
   )
+})
+
+test('policy: isInside compares path segments', () => {
+  assert.equal(isInside('/srv/app', '/srv/app'), true)
+  assert.equal(isInside('/srv/app/sub', '/srv/app'), true)
+  assert.equal(isInside('/srv/app2', '/srv/app'), false)
+  assert.equal(isInside('/srv', '/srv/app'), false)
+  assert.equal(isInside('/srv/app/../other', '/srv/app'), false)
+})
+
+test('policy: normalizeRoots trims, expands ~ and drops junk', () => {
+  const roots = normalizeRoots(['  /a ', '', 7, null, '~/b'])
+  assert.equal(roots[0], '/a')
+  assert.equal(roots.length, 2)
+  assert.ok(roots[1].endsWith('/b'))
+  assert.deepEqual(normalizeRoots(undefined), [])
+  assert.deepEqual(normalizeRoots('not-an-array'), [])
+})
+
+test('policy: every tool rejects a repository outside allowedRoots', async () => {
+  const { dir } = await makeRepo()
+  const other = await mkdtemp(path.join(tmpdir(), 'dsh-git-allowed-'))
+  fakeContext(dir, { allowedRoots: [other] })
+  const tools = fakeContext(dir, { allowedRoots: [other] })
+  const exec = { signal: signal(), agent: undefined }
+  await assert.rejects(
+    () => tools[0].execute({ cwd: dir }, exec),
+    /outside the allowed roots/,
+  )
+  await rm(other, { recursive: true, force: true })
+})
+
+test('policy: a repository inside allowedRoots still works', async () => {
+  const { dir } = await makeRepo()
+  const tools = fakeContext(dir, { allowedRoots: [path.dirname(dir)] })
+  const result = await tools[0].execute({ cwd: dir }, { signal: signal(), agent: undefined })
+  assert.equal(result.clean, true)
 })

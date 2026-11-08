@@ -1,6 +1,6 @@
 {
   "name": "dsh-git",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": false,
   "description": "Git tools for DeepSeek Harness sessions: status, diff, log, show, branch, stage, commit, blame.",
   "type": "module",

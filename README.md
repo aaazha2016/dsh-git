@@ -46,6 +46,25 @@ dsh plugin --profile gitdev add "github:aaazha2016/dsh-git"
 Installing into the profile you are currently using requires a restart of that profile, which
 ends its running Sessions. Use a second profile unless you mean it.
 
+## Configuration
+
+By default every git repository the Session can reach is usable. To restrict the plugin to
+specific trees, give it repository roots in the profile patch:
+
+```yaml
+# $DSH_HOME/profiles/<profile>/cordis.patch.yml
+- id: dsh-git
+  config:
+    allowedRoots:
+      - ~/src
+      - /data/work
+```
+
+A tool then refuses any repository whose root is not one of those directories or inside one
+of them, with `Repository <path> is outside the allowed roots (...)`. Both sides are resolved
+through `realpath`, so a symlink cannot walk out of the allowlist. An empty or missing list
+means no restriction, which is what 0.1.0 and 0.2.0 did.
+
 ## Use
 
 Ask the agent in plain language; it picks the tools:
@@ -88,6 +107,8 @@ porcelain parser. No harness install is needed to run them.
 ## Limits
 
 - No push, checkout, reset, rebase, amend, tag or stash: those stay with a person.
+- Without `allowedRoots` the plugin can stage and commit in any repository the process can
+  reach; set it when that is broader than you want.
 - `git_commit` commits only what is already staged, so a reviewed diff always precedes it.
 - Local branches only; no remote refs beyond each branch's configured upstream.
 - Patches are capped at 40,000 characters per result and say when they were cut.
