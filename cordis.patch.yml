@@ -1,0 +1,6 @@
+# dsh-git bundle layer: registers the read-only git tools into the profile.
+# No configuration is required; the plugin follows the Session working directory
+# and accepts an explicit `cwd` argument on every tool.
+- insert:
+    - id: dsh-git
+      name: dsh-git
